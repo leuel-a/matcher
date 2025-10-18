@@ -1,0 +1,87 @@
+# Matcher
+
+## Overview
+This project implements a simple **multiplayer matchmaking system** using a **microservices architecture**.  
+Players join games, are matched into rooms of six, stay for a limited time, and can rejoin after leaving.  
+All services communicate asynchronously through **RabbitMQ (Notification Service)**.  
+The system is written in **C# (.NET)** and deployed using **Docker Compose**.
+
+---
+
+## Architecture Components
+
+### 1. Player Service
+- **Purpose:** Represents individual players and their interactions with the system.  
+- **Interface:** Simple **terminal-based client** — each terminal session simulates one player.  
+- **Responsibilities:**
+  - Create a new player when a new session starts.
+  - Request to join a room (sends event to Notification Service).
+  - Receive room assignment and join for **5 minutes**.
+  - Leave the room automatically after 5 minutes.
+  - Allow the player to rejoin another room after leaving.
+
+---
+
+### 2. Matchmaking Service
+- **Purpose:** Groups players into rooms of fixed size.  
+- **Responsibilities:**
+  - Listen for **`player_joined`** events from the Notification Service.
+  - Maintain a **queue of waiting players**.
+  - When 6 players are queued, create a **new room**.
+  - Publish **`room_created`** and **`player_assigned`** events via the Notification Service.
+  - Track players’ room membership and handle **room expiration** (5 minutes).
+
+---
+
+### 3. Notification Service (RabbitMQ Broker)
+- **Purpose:** Message broker for inter-service communication.  
+- **Responsibilities:**
+  - Publish and consume events between the Player and Matchmaking services.
+  - Event Types:
+    - `player_joined` – emitted by Player Service when a player joins.
+    - `room_created` – emitted by Matchmaking Service when a new room is formed.
+    - `player_assigned` – emitted when a player is assigned to a room.
+    - `player_left` – emitted when a player leaves after 5 minutes.
+
+---
+
+## Data Flow Summary
+
+1. **Player joins** → Player Service emits `player_joined`.  
+2. **Notification Service** publishes `player_joined` to the Matchmaking Service.  
+3. **Matchmaking Service** adds the player to a queue → forms a room when 6 players are available.  
+4. **Room created** → emits `room_created` and `player_assigned` events.  
+5. **Players join room** → remain for 5 minutes.  
+6. **After 5 minutes** → Player Service emits `player_left` event.  
+7. **Cycle repeats** if player requests to join again.
+
+---
+
+## Technical Notes
+- **Language/Stack:** C# (.NET 8 or later).  
+- **Messaging:** RabbitMQ for inter-service communication.  
+- **Deployment:** Docker Compose (each service in its own container).  
+- **Room duration:** 5 minutes (configurable).  
+- **Room size:** 6 players (configurable).  
+- **Scalability:** Each service can be independently scaled horizontally.  
+- **Reliability:** RabbitMQ ensures durable message queues and decoupled communication.
+
+---
+
+## Example Event Schema
+
+```json
+// player_joined
+{
+  "event": "player_joined",
+  "playerId": "abc123",
+  "timestamp": "2025-10-18T18:30:00Z"
+}
+
+// player_assigned
+{
+  "event": "player_assigned",
+  "playerId": "abc123",
+  "roomId": "room42",
+  "timestamp": "2025-10-18T18:31:00Z"
+}
